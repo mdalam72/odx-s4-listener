@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
+	<flow name="odx-s4-listener-apiFlow" doc:id="96b1716c-8b0e-40dc-85f5-9de653226217" >
+		<http:listener doc:name="Listener" doc:id="d8b90f52-d3bb-4c35-82ff-80a258b2e4b9" config-ref="HTTP_Listener_config" path="/salesOrder">
+			<http:response >
+				<http:body ><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+	"message": "Order has been successfully delivered to Mulesoft"
+}]]]></http:body>
+			</http:response>
+		</http:listener>
+		<logger level="INFO" doc:name="Logger" doc:id="b0465e7b-1123-4b02-8fbe-f0f5969f2a64" message="***Request recieved from ODX***"/>
+		<ee:transform doc:name="Transform Message" doc:id="a95eab2f-1558-4b60-8caa-a9fd5c9f2f3b" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+{
+}]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="exe_start_time" ><![CDATA[%dw 2.0
+output application/java
+---
+(now()>>"UTC") as String {format: "yyyy-MM-dd HH:mm:ss"}]]></ee:set-variable>
+				<ee:set-variable variableName="fileName" ><![CDATA[%dw 2.0
+output application/java
+---
+"salesOrder_"++ payload.salesOrder]]></ee:set-variable>
+				<ee:set-variable variableName="target_payload" ><![CDATA[%dw 2.0
+output application/java
+---
+payload]]></ee:set-variable>
+				<ee:set-variable variableName="fileType" ><![CDATA[%dw 2.0
+output application/json
+---
+payload.fileType]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<db:insert doc:name="create logs for odx-s4-listener" doc:id="3884c272-9bfa-4059-a7e4-5ad20b826ff5" config-ref="Database_Config">
+			<db:sql><![CDATA[insert into interface_logs (interface_name, status, file_name, exe_start_date, target_payload, source, target)
+values (:interface_name, :status, :file_name, :exe_start_date, :target_payload, :source, :target);]]></db:sql>
+			<db:input-parameters><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+	interface_name: "odx-s4-listener",
+	status: "in_process",
+	file_name: vars.fileName,
+	exe_start_date: vars.exe_start_time,
+	target_payload: "",
+	source: "odx",
+	target: "s4"
+}]]]></db:input-parameters>
+		</db:insert>
+		<logger level="INFO" doc:name="Logger" doc:id="f44a8774-21b3-4c48-a61d-60eea81fa11e" message="***creating logs for odx-s4-listener***" />
+		<logger level="INFO" doc:name="Logger" doc:id="b80826d4-6fa8-42fe-9f7c-d7bebb50d51a" message="***logs created successfully for odx-s4-listener***" />
+		<choice doc:name="Choice" doc:id="cc656440-6466-4797-8cf9-e460baf638a3" >
+			<when expression="#[%dw 2.0&#10;import isAlpha from dw::core::Strings&#10;output application/json&#10;---&#10;isAlpha(vars.target_payload.salesOrder) == true]">
+				<raise-error doc:name="Raise error" doc:id="a17511c3-b9c2-4aea-a930-4cd7f27f2c9c" type="FTP:BAD REQUEST" description="Inbound data is not correct"/>
+			</when>
+			<otherwise >
+				<flow-ref doc:name="business-logic-flow" doc:id="879a0fa4-0f6d-430f-a831-8157b465de19" name="business-logic-flow" />
+			</otherwise>
+		</choice>
+		<set-variable value='#[%dw 2.0&#10;output application/java&#10;---&#10;(now()&gt;&gt;"UTC") as String {format: "yyyy-MM-dd HH:mm:ss"}]' doc:name="Set Variable" doc:id="b5cb1148-106c-40e0-898e-a6e84efbe9e2" variableName="exe_end_date" />
+		<db:update doc:name="Logs creation completes" doc:id="56bf6145-699a-449f-b472-9e33f3b5599c" config-ref="Database_Config">
+			<db:sql><![CDATA[update interface_logs set status = :status, exe_end_date = :exe_end_date
+where interface_name = 'odx-s4-listener' and file_name = :file_name]]></db:sql>
+			<db:input-parameters><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+	status: "success",
+	file_name: vars.fileName,
+	exe_end_date: vars.exe_end_date
+}]]]></db:input-parameters>
+		</db:update>
+		<logger level="INFO" doc:name="Logger" doc:id="605a48d8-e85a-44ee-ad17-4084d9b8d393" message='#["task completed for odx-s4-listener for file: " ++ vars.fileName]' />
+	</flow>
+	<flow name="business-logic-flow" doc:id="4b69211a-a45b-4d3b-80df-0d4800c3238d" >
+		<logger level="INFO" doc:name="Logger" doc:id="928fcf14-915f-4645-a4ea-871500a82fca" message="***creating logs for target interface***"/>
+		<db:insert doc:name="create-logs-for-target-interface" doc:id="b54c1c4b-6960-42b5-a6f7-f0653f7d7152" config-ref="Database_Config">
+			<db:sql><![CDATA[insert into interface_logs (interface_name, status, file_name, exe_start_date, target_payload, source, target, target_name)
+values (:interface_name, :status, :file_name, :exe_start_date, :target_payload, :source, :target, :target_name);]]></db:sql>
+			<db:input-parameters><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+	interface_name: "odx-s4-generic",
+	status: "pending",
+	file_name: vars.fileName,
+	exe_start_date: null,
+	target_payload: vars.target_payload,
+	source: "odx",
+	target: "s4",
+	target_name: "odx-s4" ++ vars.fileType
+}]]]></db:input-parameters>
+		</db:insert>
+		<logger level="INFO" doc:name="Logger" doc:id="d91810aa-49c3-40c6-8a39-aa2b4eed192b" message="***Sucessfully created logs for target interface***" />
+	</flow>
+</mule>

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
+	<error-handler name="common-error-handlerError_Handler" doc:id="611089cb-0479-4924-9dff-33408eda474e" >
+		<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="ff1c3b0d-a77c-42d4-8415-ceada82e698e" type="ANY">
+			<logger level="INFO" doc:name="Logger" doc:id="5fbe1510-2548-41fc-b24f-69b635cf1c0f" message="Entered error handling : #[error]"/>
+			<ee:transform doc:name="Error Message" doc:id="7507418c-73e6-4404-bd91-4d9d06464c13" >
+				<ee:message >
+				</ee:message>
+				<ee:variables >
+					<ee:set-variable variableName="errordata" ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"error_file": vars.fileName,
+	"application_name": "odx-s4-listener",
+	"errorDescription": error.detailedDescription,
+	"errorType": error.errorType,
+	"target_payload": vars.target_payload,
+	"status code": error.errorCode
+}]]></ee:set-variable>
+					<ee:set-variable variableName="exe_end_date" ><![CDATA[%dw 2.0
+output application/java
+---
+(now()>>"UTC") as String {format: "yyyy-MM-dd HH:mm:ss"}]]></ee:set-variable>
+				</ee:variables>
+			</ee:transform>
+			<logger level="INFO" doc:name="Logger" doc:id="6d34911e-3e76-47f6-ab02-78c832384978" message="#[vars.errordata]"/>
+			<logger level="INFO" doc:name="Logger" doc:id="8e2fb5f6-7042-420d-871f-631816c1160c" message="***Inserting error logs to Database***"/>
+			<db:update doc:name="Update" doc:id="0e77b2e9-5064-4ac0-a340-b140faff2a9f" config-ref="Database_Config">
+				<db:sql ><![CDATA[update interface_logs set status = :status, target_payload = :target_payload, exe_end_date = :exe_end_date, transaction_desc = :transaction_desc
+where file_name = :file_name]]></db:sql>
+				<db:input-parameters ><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+	status: "error",
+	file_name: vars.fileName,
+	exe_end_date: vars.exe_end_date,
+	transaction_desc: vars.errordata,
+	target_payload: vars.target_payload
+}]]]></db:input-parameters>
+			</db:update>
+			<logger level="INFO" doc:name="Logger" doc:id="ac71a0c7-9de4-4803-a393-fa092bac25c2" message="***error logs created in database successfully***"/>
+		</on-error-propagate>
+	</error-handler>
+</mule>
